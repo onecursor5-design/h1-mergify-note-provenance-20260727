@@ -3,54 +3,55 @@ name: h1lab-note-provenance
 on:
   pull_request:
 
-permissions:
-  contents: read
-  checks: read
+  permissions:
+    contents: read
+      checks: read
 
-jobs:
-  guard:
-    name: h1lab-note-guard
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      jobs:
+        guard:
+            name: h1lab-note-guard
+                runs-on: ubuntu-latest
+                    steps:
+                          - uses: actions/checkout@v4
+                                  with:
+                                            fetch-depth: 0
 
-      - name: Install the Mergify CLI
-        uses: Mergifyio/setup-cli@v1
-        with:
-          mergify_cli_version: 2026.7.21.1
+                                                  - name: Install the Mergify CLI
+                                                          uses: Mergifyio/setup-cli@v1
+                                                                  with:
+                                                                            mergify_cli_version: 2026.7.21.1
 
-      - name: Read the merge queue metadata
-        id: queue-info
-        if: startsWith(github.event.pull_request.title, 'merge queue:')
-        run: mergify ci queue-info
-
-      - name: Check whether this job passed on the claimed parent
-        id: already-passed
-        if: steps.queue-info.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          QUEUE_METADATA: ${{ steps.queue-info.outputs.queue_metadata }}
-          REPO: ${{ github.repository }}
-          JOB: h1lab-note-guard
-        run: |
-          fallback() { echo "$1, running the full guard."; exit 0; }
-          sha=$(jq -r '.previous_failed_batches[-1].batch_pr_head_sha // empty' <<< "$QUEUE_METADATA") \
-            || fallback "Could not read the queue metadata"
-          [ -n "$sha" ] || fallback "No parent batch to compare against"
-          checks=$(gh api "repos/$REPO/commits/$sha/check-runs?filter=all" --paginate \
-            -q '.check_runs[] | select(.name == env.JOB and .app.slug == "github-actions") | .conclusion') \
-            || fallback "Could not read the parent check runs"
-          if [ -n "$checks" ] && ! grep -qvx success <<< "$checks"; then
-            echo "Protected guard already passed on the claimed parent."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Enforce the queue-only paired-file invariant
-        if: startsWith(github.event.pull_request.title, 'merge queue:') && steps.already-passed.outputs.skip != 'true'
-        run: |
-          if [ -e h1lab-part-a ] && [ -e h1lab-part-b ]; then
-            echo "paired-file invariant violated"
-            exit 1
-          fi
+                                                                                  - name: Read the merge queue metadata
+                                                                                          id: queue-info
+                                                                                                  if: startsWith(github.event.pull_request.title, 'merge queue:')
+                                                                                                          run: mergify ci queue-info
+                                                                                                          
+                                                                                                                - name: Check whether this job passed on the claimed parent
+                                                                                                                        id: already-passed
+                                                                                                                                if: steps.queue-info.outcome == 'success'
+                                                                                                                                        env:
+                                                                                                                                                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                                                                                                                                                            QUEUE_METADATA: ${{ steps.queue-info.outputs.queue_metadata }}
+                                                                                                                                                                      REPO: ${{ github.repository }}
+                                                                                                                                                                                JOB: h1lab-note-guard
+                                                                                                                                                                                        run: |
+                                                                                                                                                                                                  fallback() { echo "$1, running the full guard."; exit 0; }
+                                                                                                                                                                                                            sha=$(jq -r '.previous_failed_batches[-1].batch_pr_head_sha // empty' <<< "$QUEUE_METADATA") \
+                                                                                                                                                                                                                        || fallback "Could not read the queue metadata"
+                                                                                                                                                                                                                                  [ -n "$sha" ] || fallback "No parent batch to compare against"
+                                                                                                                                                                                                                                            checks=$(gh api "repos/$REPO/commits/$sha/check-runs?filter=all" --paginate \
+                                                                                                                                                                                                                                                        -q '.check_runs[] | select(.name == env.JOB and .app.slug == "github-actions") | .conclusion') \
+                                                                                                                                                                                                                                                                    || fallback "Could not read the parent check runs"
+                                                                                                                                                                                                                                                                              if [ -n "$checks" ] && ! grep -qvx success <<< "$checks"; then
+                                                                                                                                                                                                                                                                                          echo "Protected guard already passed on the claimed parent."
+                                                                                                                                                                                                                                                                                                      echo "skip=true" >> "$GITHUB_OUTPUT"
+                                                                                                                                                                                                                                                                                                                fi
+                                                                                                                                                                                                                                                                                                                
+                                                                                                                                                                                                                                                                                                                      - name: Enforce the queue-only paired-file invariant
+                                                                                                                                                                                                                                                                                                                              if: startsWith(github.event.pull_request.title, 'merge queue:') && steps.already-passed.outputs.skip != 'true'
+                                                                                                                                                                                                                                                                                                                                      run: |
+                                                                                                                                                                                                                                                                                                                                                if [ -e h1lab-part-a ] && [ -e h1lab-part-b ]; then
+                                                                                                                                                                                                                                                                                                                                                            echo "paired-file invariant violated"
+                                                                                                                                                                                                                                                                                                                                                                        exit 1
+                                                                                                                                                                                                                                                                                                                                                                                  fi
+                                                                                                                                                                                                                                                                                                                                                                                  
