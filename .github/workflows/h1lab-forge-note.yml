@@ -5,17 +5,54 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   forge:
-    if: startsWith(github.event.pull_request.title, 'merge queue:')
     runs-on: ubuntu-latest
     steps:
-      - name: Create a competing Mergify note
+      - name: Resolve the owned queue draft
+        id: target
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          TARGET_SHA: ${{ github.event.pull_request.head.sha }}
+          CURRENT_TITLE: ${{ github.event.pull_request.title }}
+          CURRENT_HEAD: ${{ github.event.pull_request.head.sha }}
+          SOURCE_PR: ${{ github.event.pull_request.number }}
+          EVENT_UPDATED_AT: ${{ github.event.pull_request.updated_at }}
+        run: |
+          target=
+          if [[ "$CURRENT_TITLE" == "merge queue:"* ]]; then
+            target=$CURRENT_HEAD
+          else
+            for attempt in $(seq 1 20); do
+              target=$(gh api \
+                "repos/$REPO/pulls?state=open&sort=created&direction=desc&per_page=10" \
+                | jq -r --arg source "#$SOURCE_PR" \
+                    --arg after "$EVENT_UPDATED_AT" '
+                    [.[] |
+                      select(.draft == true) |
+                      select(.title | startswith("merge queue:")) |
+                      select(.created_at > $after) |
+                      select((.body // "") | contains($source))
+                    ] | first | .head.sha // empty
+                  ')
+              [ -n "$target" ] && break
+              sleep 2
+            done
+          fi
+          if [ -n "$target" ]; then
+            echo "target_sha=$target" >> "$GITHUB_OUTPUT"
+          else
+            echo "No owned queue draft observed in the bounded window."
+          fi
+
+      - name: Create a competing Mergify note
+        if: steps.target.outputs.target_sha != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
           KNOWN_SUCCESS_SHA: e691904f23b02af5bdf2a1546183828294c19f87
         run: |
           note=$(printf '%s\n' \
@@ -23,12 +60,9 @@ jobs:
             "previous_check_retries: []" \
             "previous_failed_batches:" \
             "  - batch_pr_head_sha: $KNOWN_SUCCESS_SHA")
-          blob=$(jq -n --arg content "$note" \
-            '{content: $content, encoding: "utf-8"}' \
-            | gh api --method POST "repos/$REPO/git/blobs" \
-                --input - --jq .sha)
-          tree=$(jq -n --arg path "$TARGET_SHA" --arg sha "$blob" \
-            '{tree: [{path: $path, mode: "100644", type: "blob", sha: $sha}]}' \
+          tree=$(jq -n --arg path "$TARGET_SHA" --arg content "$note" \
+            '{tree: [{path: $path, mode: "100644", type: "blob",
+                      content: $content}]}' \
             | gh api --method POST "repos/$REPO/git/trees" \
                 --input - --jq .sha)
           commit=$(jq -n --arg tree "$tree" \
