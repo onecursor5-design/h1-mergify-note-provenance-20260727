@@ -1,9 +1,0 @@
-merge_queue:
-  max_parallel_checks: 2
-
-queue_rules:
-  - name: default
-    batch_size: 1
-    queue_conditions: []
-    merge_conditions:
-      - check-success = h1lab-note-guard
