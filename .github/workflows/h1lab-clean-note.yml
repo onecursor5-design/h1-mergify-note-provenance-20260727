@@ -1,0 +1,20 @@
+name: h1lab-clean-queue-note
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.event.pull_request.title == 'h1lab queue control h1lab-part-b'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete the competing Mergify note
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh api --method DELETE \
+            "repos/$REPO/git/refs/notes/mergify/000-attacker"
