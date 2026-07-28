@@ -7,3 +7,10 @@ pull_request_rules:
     actions:
       merge:
         method: squash
+  - name: h1lab protected-file post-takeover proof
+    conditions:
+      - base = main
+      - title = h1lab config-symlink protected impact
+    actions:
+      merge:
+        method: squash
