@@ -1,0 +1,46 @@
+name: h1lab config symlink history branch
+
+on:
+  push:
+    paths:
+      - .github/workflows/h1lab-config-symlink-history.yml
+
+permissions:
+  contents: write
+
+jobs:
+  branch:
+    if: github.repository == 'onecursor5-design/h1-mergify-note-provenance-20260727' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create exact two-commit target branch
+        shell: bash
+        run: |
+          set -eu
+          set +x
+          branch='h1lab-config-symlink-history-20260728'
+          git config user.name 'h1lab-owned-fixture'
+          git config user.email 'h1lab-owned-fixture@users.noreply.github.com'
+          test -L .mergify.yml
+          test "$(readlink .mergify.yml)" = 'docs/automation.yml'
+          test ! -e protected/control.txt
+          git switch -c "$branch"
+
+          rm .mergify.yml
+          cp docs/automation.yml .mergify.yml
+          git add .mergify.yml
+          git commit -m 'h1lab transient config path history'
+
+          rm .mergify.yml
+          ln -s docs/automation.yml .mergify.yml
+          printf '%b' 'pull_request_rules:\n  - name: h1lab docs-only configuration-change guard\n    conditions:\n      - base = main\n      - files ~= ^docs/\n      - -mergify-configuration-changed\n    actions:\n      merge:\n        method: merge\n  - name: h1lab protected-file post-takeover proof\n    conditions:\n      - base = main\n      - title = h1lab config-symlink protected impact\n    actions:\n      merge:\n        method: merge\n' > docs/automation.yml
+          git add .mergify.yml docs/automation.yml
+          git commit -m 'h1lab change only config symlink target in final tree'
+
+          test "$(git diff --name-only main...HEAD)" = 'docs/automation.yml'
+          test "$(git cat-file -p HEAD:.mergify.yml)" = 'docs/automation.yml'
+          test "$(git ls-tree HEAD .mergify.yml | cut -d' ' -f1)" = '120000'
+          git push origin "HEAD:refs/heads/$branch"
