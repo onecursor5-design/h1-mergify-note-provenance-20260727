@@ -1,5 +1,6 @@
 name: h1lab config symlink fixture
 
+
 on:
   push:
     paths:
@@ -15,15 +16,17 @@ on:
           - convert
           - cleanup
 
+
 permissions:
   contents: write
+
 
 jobs:
   fixture:
     if: github.repository == 'onecursor5-design/h1-mergify-note-provenance-20260727'
     runs-on: ubuntu-latest
     env:
-      MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'bootstrap' }}
+      MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'convert' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,3 +61,4 @@ jobs:
           fi
           git commit -m "h1lab config symlink fixture: $MODE"
           git push origin HEAD:main
+
