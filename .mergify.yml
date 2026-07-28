@@ -1,5 +1,6 @@
 pull_request_rules:
   - name: h1lab docs-only configuration-change guard
+    description: h1lab direct configuration control
     conditions:
       - base = main
       - files ~= ^docs/
